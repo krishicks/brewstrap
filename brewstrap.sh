@@ -9,12 +9,6 @@ RVM_MIN_VERSION="185"
 RBENV_RUBY_VERSION="1.9.3-p125"
 RVM_RUBY_VERSION="ruby-1.9.3-p125"
 CHEF_MIN_VERSION="0.10.8"
-XCODE_DMG_NAME="xcode_4.1_for_lion.dmg"
-XCODE_SHA="2a67c713ab1ef7a47356ba86445f6e630c674b17"
-XCODE_URL="http://developer.apple.com/downloads/download.action?path=Developer_Tools/xcode_4.1_for_lion/xcode_4.1_for_lion.dmg"
-OSX_GCC_INSTALLER_NAME="GCC-10.7-v2.pkg"
-OSX_GCC_INSTALLER_URL="https://github.com/downloads/kennethreitz/osx-gcc-installer/GCC-10.7-v2.pkg"
-OSX_GCC_INSTALLER_SHA="027a045fc3e34a8839a7b0e40fa2cfb0cc06c652"
 ORIGINAL_PWD=`pwd`
 GIT_PASSWORD_SCRIPT="/tmp/retrieve_git_password.sh"
 RUBY_RUNNER=""
@@ -35,68 +29,6 @@ function print_warning() {
 function print_error() {
   echo -e "\033[1;31m${1}\033[0m\n"
   exit 1
-}
-
-function attempt_to_download_xcode() {
-  TOTAL=12
-  echo -e "XCode is not installed or downloaded. Safari will now open to ADC to download XCode."
-  echo -e "Upon logging into your ADC account, download the latest XCode DMG file."
-  echo -e "Brewstrap will continue when the download is complete. Press Ctrl-C to abort."
-  echo -e ""
-  echo -e "Alternatively you can abort this and go download it from the App Store. Once doing that,"
-  echo -e "re-run this to have it install Xcode for you and continue the process."
-  open "${XCODE_URL}"
-  SUCCESS="1"
-  while [ $SUCCESS -eq "1" ]; do
-    if [ -e ~/Downloads/${XCODE_DMG_NAME} ]; then
-      for file in $(ls -c1 ~/Downloads/${XCODE_DMG_NAME}); do
-        echo "Found ${file}. Verifying..."
-        hdiutil verify $file
-        SUCCESS=$?
-        if [ $SUCCESS -eq "0" ]; then
-          XCODE_DMG=$file
-          break;
-        else
-          echo "${file} failed SHA verification. Incomplete download or corrupted file? Try again?"
-        fi
-      done
-    fi
-    if [ $SUCCESS -eq "0" ]; then
-      break;
-    else
-      echo "Waiting for XCode download to finish..."
-      sleep 30
-    fi
-  done
-}
-
-function attempt_to_download_osx_gcc_installer() {
-  TOTAL=12
-  echo -e "OSX GCC Installer is not installed or downloaded. Downloading now..."
-  echo -e "Brewstrap will continue when the download is complete. Press Ctrl-C to abort."
-  curl -L "${OSX_GCC_INSTALLER_URL}" > /tmp/GCC-10.7-v2.pkg
-  SUCCESS="1"
-  while [ $SUCCESS -eq "1" ]; do
-    if [ -e /tmp/${OSX_GCC_INSTALLER_NAME} ]; then
-      for file in $(ls -c1 /tmp/${OSX_GCC_INSTALLER_NAME}); do
-        echo "Found ${file}. Verifying..."
-        test `shasum /tmp/${OSX_GCC_INSTALLER_NAME} | cut -f 1 -d ' '` = "${OSX_GCC_INSTALLER_SHA}"
-        SUCCESS=$?
-        if [ $SUCCESS -eq "0" ]; then
-          OSX_GCC_INSTALLER=$file
-          break;
-        else
-          echo "${file} failed SHA verification. Incomplete download or corrupted file? Try again?"
-        fi
-      done
-    fi
-    if [ $SUCCESS -eq "0" ]; then
-      break;
-    else
-      echo "Waiting for OSX GCC Installer download to finish..."
-      sleep 30
-    fi
-  done
 }
 
 echo -e "\033[1m\nStarting brewstrap...\033[0m\n"
@@ -149,49 +81,35 @@ else
   print_step "Homebrew already installed"
 fi
 
-
 if [ ! -e /usr/bin/gcc ]; then
-  if [ $XCODE ]; then
-    print_step "There is no GCC available, installing XCode"
-    if [ ! -d /Developer/Applications/Xcode.app ]; then
-      if [ -e /Applications/Install\ Xcode.app ]; then
-        print_step "Installing Xcode from the App Store..."
-        MPKG_PATH=`find /Applications/Install\ Xcode.app | grep Xcode.mpkg | head -n1`
-        sudo installer -verbose -pkg "${MPKG_PATH}" -target /
-      else
-        print_step "Installing Xcode from DMG..."
-        if [ ! -e ~/Downloads/${XCODE_DMG_NAME} ]; then
-          attempt_to_download_xcode
-        else
-          XCODE_DMG=`ls -c1 ~/Downloads/xcode*.dmg | tail -n1`
-        fi
-        if [ ! -e $XCODE_DMG ]; then
-          print_error "Unable to download XCode and it is not installed!"
-        fi
-        cd `dirname $0`
-        mkdir -p /Volumes/Xcode
-        hdiutil attach -mountpoint /Volumes/Xcode $XCODE_DMG
-        MPKG_PATH=`find /Volumes/Xcode | grep .mpkg | head -n1`
-        sudo installer -verbose -pkg "${MPKG_PATH}" -target /
-        hdiutil detach -Force /Volumes/Xcode
-      fi
-    else
-      print_step "Xcode already installed"
-    fi
-  else
-    print_step "There is no GCC available, installing the OSX GCC tools. If you want XCode instead, re-run this script with XCODE=true"
-    print_step "Installing OSX GCC Installer from package..."
-    if [ ! -e /tmp/${OSX_GCC_INSTALLER_NAME} ]; then
-      attempt_to_download_osx_gcc_installer
-    else
-      OSX_GCC_INSTALLER=`ls -c1 /tmp/GCC-*.pkg | tail -n1`
-    fi
-    if [ ! -e $OSX_GCC_INSTALLER ]; then
-      print_error "Unable to download OSX GCC Installer and it is not installed!"
-    fi
-    cd `dirname $0`
-    sudo installer -verbose -pkg /tmp/${OSX_GCC_INSTALLER_NAME} -target /
-  fi
+  print_step "There is no GCC available, installing command line tools for XCode"
+
+  echo -n "ADC Username: "
+  stty echo
+  read ADC_USERNAME
+  echo ""
+
+  echo -n "ADC password: "
+  stty -echo
+  read ADC_PASSWORD
+  echo ""
+
+  loginpage=`curl -L "https://developer.apple.com/downloads/"`
+  [[ $loginpage =~ form[^\>]+action=\"([^\"]+)\" ]] && loginurl="https://daw.apple.com/${BASH_REMATCH[1]}"
+  [[ $loginpage =~ name=\"wosid\"\ value=\"([^\"]+)\" ]] && wosid="${BASH_REMATCH[1]}"
+
+  curl -s -c /tmp/adccookies.txt -L -F ADC_USERNAME="$ADC_USERNAME" -F ADC_PASSWORD="$ADC_PASSWORD" -F 1.Continue=1 -F theAuxValue= -F wosid="$wosid" "$loginurl"
+
+  downloads=`curl -s -b /tmp/adcdownloadpagecookies.txt --data "start=0&limit=1&sort=dateModified&dir=DESC&searchTextField=Command%20Line%20Tools%20for%20Xcode&searchCategories=Developer%20Tools&search=true" https://developer.apple.com/downloads/seedlist.action`
+  [[ $downloads =~ stagePath\":\"(.*).dmg\" ]] && downloadURL="https://developer.apple.com//downloads/download.action?path=${BASH_REMATCH[1]}.dmg"
+
+  curl -L -O -b /tmp/adcdownloadpagecookies.txt "$downloadURL" > /tmp/command_line_tools.dmg
+
+  mkdir -p /Volumes/Command\ Line\ Tools
+  hdiutil attach -mountpoint /Volumes/Command\ Line\ Tools /tmp/command_line_tools.dmg
+  MPKG_PATH=`find /Volumes/Command\ Line\ Tools | grep .mpkg | head -n1`
+  sudo installer -verbose -pkg "${MPKG_PATH}" -target /
+  hdiutil detach -Force /Volumes/Command\ Line\ Tools
 fi
 
 GIT_PATH=`which git`
